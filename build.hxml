@@ -1,0 +1,4 @@
+-cpp bin
+-main Main
+-debug
+-D NO_PRECOMPILED_HEADERS

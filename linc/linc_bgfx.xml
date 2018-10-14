@@ -1,0 +1,31 @@
+<xml>
+
+    <files id='haxe'>
+        <compilerflag value='-DLINC_BGFX'/>
+        <compilerflag value='-I../linc/'/>
+        <file name='../linc/linc_bgfx.cpp' />
+    </files>
+
+    <files id="__main__">
+        <compilerflag value='-I${LINC_LINC_BGFX}linc/'/>
+    </files>
+
+    <target id="haxe">
+
+        <section if="windows">
+            <lib name='../lib/bgfx.lib' if='HXCPP_M64' />
+            <lib name='../lib/bgfx.lib' if='HXCPP_M32' />
+            <lib name='../lib/bx.lib' if='HXCPP_M64' />
+            <lib name='../lib/bx.lib' if='HXCPP_M32' />
+            <lib name='../lib/bimg.lib' if='HXCPP_M64' />
+            <lib name='../lib/bimg.lib' if='HXCPP_M32' />
+            <lib name='DelayImp.lib' if='HXCPP_M32' />
+            <lib name='gdi32.lib' if='HXCPP_M32' />
+            <lib name='user32.lib' if='HXCPP_M32' />
+            <lib name='kernel32.lib' if='HXCPP_M32' />
+            <lib name='psapi.lib' if='HXCPP_M32' />
+        </section>
+
+    </target>
+
+</xml>
