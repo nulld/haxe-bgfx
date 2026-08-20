@@ -16,6 +16,7 @@ native: src/prism.c
 
 check: prism
 	./bench/roundtrip.sh ./prism
+	./bench/portability.sh
 
 clean:
 	rm -f prism

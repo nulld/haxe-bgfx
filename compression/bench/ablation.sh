@@ -10,9 +10,18 @@ LEVEL=${3:--9}
 JOBS=${4:-4}
 OUT=${OUT:-bench/results}
 mkdir -p "$OUT/abl"
-CONFIGS=("full:" "no-stride:--no-stride" "no-regime:--no-regime" "no-line:--no-line" "no-match:--no-match")
+CONFIGS=("no-stride:--no-stride" "no-regime:--no-regime" "no-line:--no-line" "no-match:--no-match")
 
+# Reuse the full-model sizes that run_bench.sh already measured (and verified
+# by decompressing) rather than spending another corpus pass recomputing them.
 echo "config,file,size" > "$OUT/ablation.csv"
+if [ -f "$OUT/raw.csv" ]; then
+  tail -n +2 "$OUT/raw.csv" | while IFS=, read -r f orig prism rest; do
+    echo "full,$f,$prism" >> "$OUT/ablation.csv"
+  done
+else
+  CONFIGS=("full:" "${CONFIGS[@]}")
+fi
 for cfg in "${CONFIGS[@]}"; do
   name=${cfg%%:*}; flag=${cfg#*:}
   for f in "$CORPUS"/*; do
