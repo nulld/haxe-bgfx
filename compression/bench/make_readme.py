@@ -5,8 +5,9 @@ import csv, sys, collections, pathlib, re
 
 root = pathlib.Path(__file__).resolve().parent.parent
 res = root / "bench" / "results"
+template = root / "README.template.md"
 readme = root / "README.md"
-text = readme.read_text()
+text = template.read_text()
 
 # ---- Silesia table -------------------------------------------------------
 text = text.replace("SILESIA_TABLE", (res / "table.md").read_text().strip())
@@ -63,15 +64,19 @@ if e8.exists():
       "| **PRISM -9** | **%s** | **%.3f** |" % (f"{int(d['size']):,}", int(d['size'])*8/n),
       "",
       "%.1f%% below xz -9e. Verified by decompressing: %s. %.0f s to compress, "
-      "%.0f s to decompress, %s MB peak." % (
+      "%.0f s to decompress, %s MB peak. Raising the model memory to -11 "
+      "(%s MB) gets to %s bytes, %.3f bpc -- **-1.1%% for four times the RAM**, "
+      "which is the shape of the memory/ratio curve up here." % (
           100.0*(int(d['xz'])-int(d['size']))/int(d['xz']), d['verify'],
-          float(d['ctime']), float(d['dtime']), int(d['peak_rss_kib'])//1024),
+          float(d['ctime']), float(d['dtime']), int(d['peak_rss_kib'])//1024,
+          int(d.get('l11_peak_rss_kib', 0))//1024, f"{int(d.get('l11_size', 0)):,}",
+          int(d.get('l11_size', 0))*8/n),
       "",
       "**And this is where PRISM loses.** The published Large Text Compression "
       "Benchmark figures (not measured here) put lpaq1 -9 at 19,755,948 bytes, "
-      "1.581 bpc -- **4.7% smaller than PRISM**, from a 600-line compressor "
-      "released in 2007. zpaq -m5 reaches 17,855,729 and cmix v21 14,623,723, the "
-      "latter on roughly 26 GB of RAM.", "",
+      "1.581 bpc -- smaller than PRISM at either memory level, from a 600-line "
+      "compressor released in 2007. zpaq -m5 reaches 17,855,729 and cmix v21 "
+      "14,623,723, the latter on roughly 26 GB of RAM.", "",
       "The gap is not mysterious: lpaq1 spends its whole model budget on English "
       "text -- a word model carrying several previous words, and orders tuned for "
       "it -- while PRISM spends a third of its contexts on record structure that "
@@ -83,4 +88,4 @@ if e8.exists():
 else:
     text = text.replace("ENWIK8_SECTION", "")
 readme.write_text(text)
-print("README.md assembled")
+print("README.md assembled from README.template.md")

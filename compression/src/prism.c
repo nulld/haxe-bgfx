@@ -456,7 +456,7 @@ static int  xin[NINPUT];
 static Mixer mx1[NMIX1];
 static int  x2in[NMIX1 + 1];
 static Mixer mx2;
-static APM  apm1, apm2;
+static APM  apm2;
 static StateMap sm_o0, sm_o1, sm_o2;
 static U32  o2ctx = 0;
 
@@ -464,6 +464,7 @@ static inline int bget(U64 back) { return (pos >= back) ? buf[pos - back] : 0; }
 
 static void models_init(int level) {
   size_t cmbytes = (size_t)1 << (20 + level);
+  if (level < 0 || level > 11) { fprintf(stderr, "prism: bad level in header\n"); exit(1); }
   U32 mmbits = (U32)(16 + level);
   int i;
 
@@ -490,8 +491,7 @@ static void models_init(int level) {
     mx_init(&mx1[i], NINPUT, sets[i], xin, lrs[i], 1 << 14);
   }
   mx_init(&mx2, NMIX1 + 1, 64, x2in, 16, 1 << 15);
-  apm_init(&apm1, 1 << 14, 7);
-  apm_init(&apm2, 1 << 16, 7);
+  apm_init(&apm2, 1 << 16, 6);
 
   memset(sd_cnt, 0, sizeof(sd_cnt));
 }
@@ -664,16 +664,13 @@ static int predict(void) {
   x2in[NMIX1] = 256;
 
   pr = mx_mix(&mx2, (features & F_REGIME) ? (U32)regime : 0);
-  {
-    int pa = apm_pp(&apm1, pr, (U32)((((features & F_REGIME) ? regime : 0) << 8) | c0));
-    int pb = apm_pp(&apm2, pr, (U32)(((c0 << 8) | bget(1)) & 0xffff));
-    /* Parallel SSE banks averaged with the raw mixer output: a deep chain
-     * compounds each stage's miscalibration, an average does not. */
-    /* The raw mixer output keeps half the weight: letting the SSE stages
-     * dominate caps how confident the final prediction can get, which costs
-     * real bits on highly predictable data (measured: +12% on Silesia xml). */
-    pr = (2 * pr + pa + pb + 2) >> 2;
-  }
+  /* One SSE stage, and the raw mixer output keeps three quarters of the weight.
+   * Every part of that went against the textbook and every part of it is
+   * measured: a second chained stage was worth exactly nothing here, a second
+   * parallel stage contexted on the regime was worse than not having it, and
+   * letting SSE take more of the weight caps how confident the final
+   * prediction can get -- which costs real bits on predictable data. */
+  pr = (3 * pr + apm_pp(&apm2, pr, (U32)(((c0 << 8) | bget(1)) & 0xffff)) + 2) >> 2;
   return clampi(pr, 1, 4094);
 }
 
@@ -734,7 +731,6 @@ static void byte_update(int c) {
 static void update(int y) {
   int i;
   apm_update(&apm2, y);
-  apm_update(&apm1, y);
   mx_update(&mx2, y);
   for (i = 0; i < NMIX1; ++i) mx_update(&mx1[i], y);
   if (mm_valid) { sm_update(&sm_match, y); sm_update(&sm_match2, y); }
@@ -811,7 +807,11 @@ int main(int argc, char **argv) {
     const char *a = argv[i];
     if (!strcmp(a, "c") || !strcmp(a, "-c")) mode = 'c';
     else if (!strcmp(a, "d") || !strcmp(a, "-d")) mode = 'd';
-    else if (a[0] == '-' && a[1] >= '0' && a[1] <= '9' && !a[2]) level = a[1] - '0';
+    else if (a[0] == '-' && a[1] >= '0' && a[1] <= '9') {
+      char *end; long v = strtol(a + 1, &end, 10);
+      if (*end || v < 0 || v > 11) { fprintf(stderr, "prism: level must be 0..11\n"); return 1; }
+      level = (int)v;
+    }
     else if (!strcmp(a, "--no-stride")) features &= ~F_STRIDE;
     else if (!strcmp(a, "--no-regime")) features &= ~F_REGIME;
     else if (!strcmp(a, "--no-line"))   features &= ~F_LINE;
@@ -827,7 +827,7 @@ int main(int argc, char **argv) {
       "PRISM " "1.0" " - context-mixing compressor with online structure detection\n"
       "usage: prism c|d [-0..-9] [--no-stride|--no-regime|--no-line|--no-match] in out\n"
       "  c        compress      d        decompress\n"
-      "  -0..-9   model memory 1 MiB .. 512 MiB (default -7 = 128 MiB)\n"
+      "  -0..-11  hash table 1 MiB .. 2 GiB (default -7 = 128 MiB; -11 needs ~2.6 GiB)\n"
       "  --*      ablation switches, recorded in the header so d mirrors c\n");
     return 1;
   }
