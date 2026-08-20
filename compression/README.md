@@ -1,6 +1,6 @@
 # PRISM
 
-A lossless context-mixing compressor, written from scratch in ~800 lines of C99.
+A lossless context-mixing compressor, written from scratch in ~890 lines of C99.
 
 ```
 make native
@@ -77,9 +77,17 @@ can be retuned in one place.
 
 ## What is new here
 
-Three things in PRISM are not, as far as I can find, in the shipping context-mixing
-compressors. Each is behind a runtime flag so its contribution is measurable, and
-the flags are recorded in the stream header so the decoder mirrors the encoder.
+Three things in PRISM are not in the open context-mixing implementations I read
+while building it — lpaq1, paq8l, paq8px, zpaq and cmix, whose sources I went
+through for exactly this question. That is the claim, and it is deliberately
+narrower than "new": I make no claim about compressors I did not read, and the
+field's engineering is spread across hundreds of programs and a forum
+(encode.su) that this machine's egress policy blocked. Two of the three are also
+transfers of ideas that are old elsewhere, credited below.
+
+Each is behind a runtime flag so its contribution is a measured number rather
+than an assertion, and the flags are recorded in the stream header so the
+decoder mirrors the encoder.
 
 ### 1. Harmonic-sum record-length detection (`--no-stride` to disable)
 
@@ -96,7 +104,11 @@ its own harmonics at `2S`, `3S`, … — and picking `2S` costs you half the col
 structure. paq8px carries an explicit special case for the `2×` alias to paper over
 exactly this.
 
-PRISM scores the whole comb instead:
+PRISM scores the whole comb instead. The technique is not new in general — it is
+the harmonic sum used for pitch detection in audio, where the same `S` vs `2S`
+ambiguity has been solved this way for decades. What is new is applying it to
+record-length detection inside a compressor, and letting its output gate the
+mixer rather than only supply contexts:
 
 ```
 score(S) = cnt[S] + Σ_{j≥2} cnt[j·S] / j
@@ -117,8 +129,9 @@ is 1.5k integer operations per 4 KB. It runs unsupervised and re-decides every
 boundary or file-type detector.
 
 On the synthetic 12-byte-record file in the test suite this is the difference
-between 3,036 and 23,554 bytes — **7.8×**. On the Silesia corpus it is worth
-STRIDE_PCT of the total.
+between 3,036 and 23,554 bytes — **7.8×**. On the Silesia corpus, removing the
+whole stride machinery costs STRIDE_PCT, concentrated on `sao` (a fixed-width
+star catalogue) at +10.4%.
 
 ### 2. Regime-gated mixing (`--no-regime` to disable)
 
@@ -135,9 +148,13 @@ therefore re-specialises *inside* a heterogeneous file — a tar of source and
 binaries, an archive with a header and a payload — with no block boundary and no
 detector.
 
-Measured contribution: REGIME_PCT. That is real but modest, and smaller than the
-narrative would suggest — most of what the regime knows, the effective-order and
-column gates already knew. It is reported here rather than quietly dropped.
+Measured contribution: REGIME_PCT on the full corpus, worst-hit file `osdb` at
++3.1%. Worth recording how that number moved: while tuning on 2 MB samples the
+regime gate looked nearly worthless (0.11%), and it would have been reasonable to
+delete it. It only pays off at corpus scale, because a weight bank per regime
+needs enough data to fill 64 banks before specialising beats diluting. Tuning
+decisions taken on small samples are not safe to extrapolate, and this is the
+component that showed it.
 
 ### 3. Multi-timescale layer 1
 
@@ -146,7 +163,8 @@ unit error) rather than one global rate. Fast mixers track regime changes, slow 
 hold a long-run average, and the regime-gated layer-2 mixer arbitrates. cmix
 duplicates gating contexts across learning rates for the same reason; the
 combination with an explicit regime gate on the arbitrating layer is what is new
-here. Worth about 0.1% — small, and essentially free.
+here. Measured at about 0.1% on a 16 MB tuning sample — small, but essentially
+free, since it changes a constant rather than adding work.
 
 ## Results
 
@@ -164,11 +182,19 @@ Each row recompresses the whole corpus with one component disabled.
 
 ABLATION_TABLE
 
-The honest reading: the stride machinery is the largest single contribution and it
-is concentrated exactly where it should be (fixed-width binary records); the match
-model is the next; regime gating is real but small. The SSE blend weighting found by
-measurement — keeping half the weight on the raw mixer output — was worth more than
-any of them (12% on `xml` alone), and it is a tuning constant, not an idea.
+The honest reading: the **match model is the largest single contribution** at
+3.49%, and it is the least novel part of the whole compressor — it is the LZ77
+idea, fed to the mixer as a probability instead of used as a decision. The two
+components this project actually contributes come next, at 1.39% and 1.26%, and
+each is concentrated exactly where its motivation says it should be (`sao` for
+the record grid, `osdb` for regime switching inside a file).
+
+Worth more than any of them was a tuning constant found by measurement, not an
+idea: keeping half the final weight on the raw mixer output instead of letting
+the SSE stages dominate. The textbook topology (parallel SSE banks averaged with
+equal weight) cost 12% on `xml` alone. That is the honest shape of work in this
+field — the architecture is published, and most of the remaining distance is
+measurement.
 
 ## What it costs
 
