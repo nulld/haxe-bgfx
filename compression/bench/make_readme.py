@@ -67,13 +67,18 @@ if e8.exists():
           100.0*(int(d['xz'])-int(d['size']))/int(d['xz']), d['verify'],
           float(d['ctime']), float(d['dtime']), int(d['peak_rss_kib'])//1024),
       "",
-      "For scale, and **not measured here** -- these are the published Large Text "
-      "Compression Benchmark figures, quoted so the result can be located rather "
-      "than to claim anything: lpaq1 -9 reaches 19,755,948 (1.581 bpc), zpaq -m5 "
-      "17,855,729 (1.428), and the frontier, cmix v21, 14,623,723 (1.170) using "
-      "roughly 26 GB of RAM. PRISM sits where a compressor of this size and "
-      "ambition should sit: past the general-purpose tools, short of the "
-      "specialists.", ""]
+      "**And this is where PRISM loses.** The published Large Text Compression "
+      "Benchmark figures (not measured here) put lpaq1 -9 at 19,755,948 bytes, "
+      "1.581 bpc -- **4.7% smaller than PRISM**, from a 600-line compressor "
+      "released in 2007. zpaq -m5 reaches 17,855,729 and cmix v21 14,623,723, the "
+      "latter on roughly 26 GB of RAM.", "",
+      "The gap is not mysterious: lpaq1 spends its whole model budget on English "
+      "text -- a word model carrying several previous words, and orders tuned for "
+      "it -- while PRISM spends a third of its contexts on record structure that "
+      "enwik8 does not have. That trade is visible in the two benchmarks: PRISM is "
+      "ahead on Silesia, which is 60% binary and structured, and behind on 100 MB "
+      "of prose. A compressor is a bet about what its input looks like, and this "
+      "one bets differently.", ""]
     text = text.replace("ENWIK8_SECTION", "\n".join(sec))
 else:
     text = text.replace("ENWIK8_SECTION", "")

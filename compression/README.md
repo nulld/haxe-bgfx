@@ -130,7 +130,7 @@ boundary or file-type detector.
 
 On the synthetic 12-byte-record file in the test suite this is the difference
 between 3,036 and 23,554 bytes — **7.8×**. On the Silesia corpus, removing the
-whole stride machinery costs STRIDE_PCT, concentrated on `sao` (a fixed-width
+whole stride machinery costs +1.39%, concentrated on `sao` (a fixed-width
 star catalogue) at +10.4%.
 
 ### 2. Regime-gated mixing (`--no-regime` to disable)
@@ -148,7 +148,7 @@ therefore re-specialises *inside* a heterogeneous file — a tar of source and
 binaries, an archive with a header and a payload — with no block boundary and no
 detector.
 
-Measured contribution: REGIME_PCT on the full corpus, worst-hit file `osdb` at
+Measured contribution: +1.26% on the full corpus, worst-hit file `osdb` at
 +3.1%. Worth recording how that number moved: while tuning on 2 MB samples the
 regime gate looked nearly worthless (0.11%), and it would have been reasonable to
 delete it. It only pays off at corpus scale, because a weight bank per regime
@@ -172,15 +172,55 @@ Silesia corpus (12 files, 211,938,580 bytes), single thread, `prism -9`.
 Every PRISM stream in this table was decompressed and compared against the
 original; the `verify` column is that check, not an assertion.
 
-SILESIA_TABLE
+| file | size | gzip -9 | bzip2 -9 | xz -9e | **PRISM -9** | bpb | vs xz | verify |
+|---|---:|---:|---:|---:|---:|---:|---:|:--:|
+| dickens | 10,192,446 | 3,851,823 | 2,799,520 | 2,831,212 | **2,226,279** | 1.747 | -21.4% | ok |
+| mozilla | 51,220,480 | 18,994,142 | 17,914,392 | 13,376,240 | **12,547,375** | 1.960 | -6.2% | ok |
+| mr | 9,970,564 | 3,673,940 | 2,441,280 | 2,751,892 | **2,211,898** | 1.775 | -19.6% | ok |
+| nci | 33,553,445 | 2,987,533 | 1,812,734 | 1,449,272 | **1,340,893** | 0.320 | -7.5% | ok |
+| ooffice | 6,152,192 | 3,090,442 | 2,862,526 | 2,427,224 | **2,047,211** | 2.662 | -15.7% | ok |
+| osdb | 10,085,684 | 3,716,342 | 2,802,792 | 2,844,556 | **2,401,645** | 1.905 | -15.6% | ok |
+| reymont | 6,627,202 | 1,820,834 | 1,246,230 | 1,315,592 | **994,015** | 1.200 | -24.4% | ok |
+| samba | 21,606,400 | 5,408,272 | 4,549,759 | 3,739,524 | **3,280,091** | 1.214 | -12.3% | ok |
+| sao | 7,251,944 | 5,327,041 | 4,940,524 | 4,425,664 | **3,831,691** | 4.227 | -13.4% | ok |
+| webster | 41,458,703 | 12,061,624 | 8,644,714 | 8,368,672 | **6,328,441** | 1.221 | -24.4% | ok |
+| x-ray | 8,474,240 | 6,037,713 | 4,051,112 | 4,491,264 | **3,771,158** | 3.560 | -16.0% | ok |
+| xml | 5,345,280 | 662,284 | 441,186 | 434,892 | **390,995** | 0.585 | -10.1% | ok |
+| **total** | **211,938,580** | **67,631,990** | **54,506,769** | **48,456,004** | **41,371,692** | **1.562** | **-14.6%** | |
 
-ENWIK8_SECTION
+Ratios: gzip -9 3.134x, bzip2 -9 3.888x, xz -9e 4.374x, PRISM 5.123x.
+PRISM: 1399 s compress, 1429 s decompress (0.14 / 0.14 MiB/s single-threaded). xz -9e: 211 s compress (0.96 MiB/s).
+
+
+### enwik8
+
+The other standard reference point, so the result can be placed against the published literature. 100,000,000 bytes of Wikipedia XML; the gzip and bzip2 rows below reproduce the long-published values for this file to within a version's difference, which is the check that this setup is measuring the same thing everyone else is.
+
+| | size | bpc |
+|---|---:|---:|
+| gzip -9 | 36,445,248 | 2.916 |
+| bzip2 -9 | 29,008,758 | 2.321 |
+| xz -9e | 24,831,648 | 1.987 |
+| **PRISM -9** | **20,685,087** | **1.655** |
+
+16.7% below xz -9e. Verified by decompressing: ok. 599 s to compress, 585 s to decompress, 758 MB peak.
+
+**And this is where PRISM loses.** The published Large Text Compression Benchmark figures (not measured here) put lpaq1 -9 at 19,755,948 bytes, 1.581 bpc -- **4.7% smaller than PRISM**, from a 600-line compressor released in 2007. zpaq -m5 reaches 17,855,729 and cmix v21 14,623,723, the latter on roughly 26 GB of RAM.
+
+The gap is not mysterious: lpaq1 spends its whole model budget on English text -- a word model carrying several previous words, and orders tuned for it -- while PRISM spends a third of its contexts on record structure that enwik8 does not have. That trade is visible in the two benchmarks: PRISM is ahead on Silesia, which is 60% binary and structured, and behind on 100 MB of prose. A compressor is a bet about what its input looks like, and this one bets differently.
+
 
 ## Ablation
 
 Each row recompresses the whole corpus with one component disabled.
 
-ABLATION_TABLE
+| disabled component | corpus total | cost of removing it | worst-hit file |
+|---|---:|---:|---|
+| *(nothing -- full model)* | 41,371,692 | -- | |
+| stride detector + column models | 41,945,503 | **+1.39%** | sao +10.4% |
+| regime-gated mixing/SSE | 41,891,443 | **+1.26%** | osdb +3.1% |
+| newline column models | 41,588,797 | **+0.52%** | nci +8.6% |
+| match model | 42,816,811 | **+3.49%** | xml +14.4% |
 
 The honest reading: the **match model is the largest single contribution** at
 3.49%, and it is the least novel part of the whole compressor — it is the LZ77
@@ -200,11 +240,21 @@ measurement.
 
 This is the part that decides whether you would actually use it.
 
-COST_TABLE
+All measured on the same machine and the same corpus.
+
+| | gzip -9 | xz -9e | PRISM -9 |
+|---|---:|---:|---:|
+| Silesia ratio | 3.13x | 4.37x | **5.12x** |
+| compress | 9.1 MiB/s | 0.96 MiB/s | **0.14 MiB/s** |
+| decompress | 145 MiB/s | 55 MiB/s | **0.14 MiB/s** |
+| peak memory | 1 MB | 140 MB | **668 MB** |
+
+PRISM is **7x slower to compress than xz -9e and 389x slower to decompress**, for 14.6% fewer bytes.
 
 - **Decompression costs the same as compression.** The model must be rebuilt
-  identically, so there is no fast decode path. xz decompresses at ~100 MB/s; PRISM
-  does not. For anything write-once-read-many, that is disqualifying.
+  identically, so there is no fast decode path. xz decompresses this corpus at
+  55 MiB/s, PRISM at 0.14. For anything write-once-read-many, that is
+  disqualifying.
 - **No random access, no streaming, no recovery.** The whole file is held in memory
   and the model state is a single unbroken chain; a corrupt byte destroys the
   remainder.
@@ -212,8 +262,10 @@ COST_TABLE
 - **Memory is a fixed budget, not a function of input size.** `-9` allocates ~700 MB
   regardless of whether the input is 4 KB or 4 GB.
 
-Where it is genuinely the right tool: cold archival of structured or textual data
-where bytes cost more than cycles, and both ends control the software.
+Where it is genuinely the right tool: cold archival of structured or mixed data
+where bytes cost more than cycles and both ends control the software. For pure
+English prose, lpaq1 is smaller and roughly ten times faster (see enwik8 above)
+-- use that instead.
 
 ## Usage
 
