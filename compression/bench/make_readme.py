@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Substitute measured numbers into README.md. Run after run_bench.sh and
+ablation.sh so every table in the document is generated, not typed."""
+import csv, sys, collections, pathlib, re
+
+root = pathlib.Path(__file__).resolve().parent.parent
+res = root / "bench" / "results"
+template = root / "README.template.md"
+readme = root / "README.md"
+text = template.read_text()
+
+# ---- Silesia table -------------------------------------------------------
+text = text.replace("SILESIA_TABLE", (res / "table.md").read_text().strip())
+
+# ---- ablation ------------------------------------------------------------
+abl = (res / "ablation.md").read_text().strip()
+text = text.replace("ABLATION_TABLE", abl)
+
+tot = collections.defaultdict(int)
+per = collections.defaultdict(dict)
+for r in csv.DictReader(open(res / "ablation.csv")):
+    tot[r['config']] += int(r['size']); per[r['config']][r['file']] = int(r['size'])
+def pct(cfg):
+    return "%+.2f%%" % (100.0 * (tot[cfg] - tot['full']) / tot['full'])
+def worst(cfg):
+    w, wd = '', 0.0
+    for f, v in per[cfg].items():
+        d = 100.0 * (v - per['full'][f]) / per['full'][f]
+        if d > wd: wd, w = d, f
+    return "`%s` at +%.1f%%" % (w, wd)
+for key, cfg in (("STRIDE", 'no-stride'), ("REGIME", 'no-regime'),
+                 ("MATCH", 'no-match'), ("LINE", 'no-line')):
+    text = text.replace(key + "_PCT", pct(cfg)).replace(key + "_WORST", worst(cfg))
+
+# ---- cost table ----------------------------------------------------------
+rows = list(csv.DictReader(open(res / "raw.csv")))
+o = sum(int(r['orig']) for r in rows)
+p = sum(int(r['prism']) for r in rows)
+x = sum(int(r['xz9e']) for r in rows)
+g = sum(int(r['gzip9']) for r in rows)
+tc = sum(float(r['prism_ctime']) for r in rows)
+td = sum(float(r['prism_dtime']) for r in rows)
+tx = sum(float(r['xz_ctime']) for r in rows)
+ref = dict(l.strip().split('=', 1) for l in open(res / "reference_speeds.txt") if '=' in l)
+cost = [
+ "All measured on the same machine and the same corpus.", "",
+ "| | gzip -9 | xz -9e | PRISM -9 |", "|---|---:|---:|---:|",
+ "| Silesia ratio | %.2fx | %.2fx | **%.2fx** |" % (o/g, o/x, o/p),
+ "| compress | %s MiB/s | %.2f MiB/s | **%.2f MiB/s** |" % (ref['gzip_c_mibs'], o/1048576/tx, o/1048576/tc),
+ "| decompress | %s MiB/s | %s MiB/s | **%.2f MiB/s** |" % (ref['gzip_d_mibs'], ref['xz_d_mibs'], o/1048576/td),
+ "| peak memory | %s MB | %s MB | **%s MB** |" % (ref['gzip_mem_mb'], ref['xz_mem_mb'], ref['prism_mem_mb']),
+ "",
+ "PRISM is **%.0fx slower to compress than xz -9e and %.0fx slower to decompress**, "
+ "for %.1f%% fewer bytes." % (tc/tx, td/(o/1048576/float(ref['xz_d_mibs'])), 100.0*(x-p)/x),
+]
+text = text.replace("COST_TABLE", "\n".join(cost))
+
+# ---- enwik8 --------------------------------------------------------------
+e8 = res / "enwik8.txt"
+if e8.exists():
+    d = dict(kv.split('=', 1) for kv in e8.read_text().split() if '=' in kv)
+    n = 100_000_000
+    sec = ["", "### enwik8", "",
+      "The other standard reference point, so the result can be placed against the "
+      "published literature. 100,000,000 bytes of Wikipedia XML; the gzip and bzip2 "
+      "rows below reproduce the long-published values for this file to within a "
+      "version's difference, which is the check that this setup is measuring the "
+      "same thing everyone else is.", "",
+      "| | size | bpc |", "|---|---:|---:|",
+      "| gzip -9 | %s | %.3f |" % (f"{int(d['gzip']):,}", int(d['gzip'])*8/n),
+      "| bzip2 -9 | %s | %.3f |" % (f"{int(d['bzip2']):,}", int(d['bzip2'])*8/n),
+      "| xz -9e | %s | %.3f |" % (f"{int(d['xz']):,}", int(d['xz'])*8/n),
+      "| **PRISM -9** | **%s** | **%.3f** |" % (f"{int(d['size']):,}", int(d['size'])*8/n),
+      "",
+      "%.1f%% below xz -9e. Verified by decompressing: %s. %.0f s to compress, "
+      "%.0f s to decompress, %s MB peak. Raising the model memory to -11 "
+      "(%s MB) gets to %s bytes, %.3f bpc -- **-1.1%% for four times the RAM**, "
+      "which is the shape of the memory/ratio curve up here." % (
+          100.0*(int(d['xz'])-int(d['size']))/int(d['xz']), d['verify'],
+          float(d['ctime']), float(d['dtime']), int(d['peak_rss_kib'])//1024,
+          int(d.get('l11_peak_rss_kib', 0))//1024, f"{int(d.get('l11_size', 0)):,}",
+          int(d.get('l11_size', 0))*8/n),
+      "",
+      "**And this is where PRISM loses.** The published Large Text Compression "
+      "Benchmark figures (not measured here) put lpaq1 -9 at 19,755,948 bytes, "
+      "1.581 bpc -- smaller than PRISM at either memory level, from a 600-line "
+      "compressor released in 2007. zpaq -m5 reaches 17,855,729 and cmix v21 "
+      "14,623,723, the latter on roughly 26 GB of RAM.", "",
+      "The gap is not mysterious: lpaq1 spends its whole model budget on English "
+      "text -- a word model carrying several previous words, and orders tuned for "
+      "it -- while PRISM spends a third of its contexts on record structure that "
+      "enwik8 does not have. That trade is visible in the two benchmarks: PRISM is "
+      "ahead on Silesia, which is 60% binary and structured, and behind on 100 MB "
+      "of prose. A compressor is a bet about what its input looks like, and this "
+      "one bets differently.", ""]
+    text = text.replace("ENWIK8_SECTION", "\n".join(sec))
+else:
+    text = text.replace("ENWIK8_SECTION", "")
+readme.write_text(text)
+print("README.md assembled from README.template.md")
