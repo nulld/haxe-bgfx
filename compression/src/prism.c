@@ -825,7 +825,7 @@ int main(int argc, char **argv) {
   if (!mode || !inname || !outname) {
     fprintf(stderr,
       "PRISM " "1.0" " - context-mixing compressor with online structure detection\n"
-      "usage: prism c|d [-0..-9] [--no-stride|--no-regime|--no-line|--no-match] in out\n"
+      "usage: prism c|d [-0..-11] [--no-stride|--no-regime|--no-line|--no-match] in out\n"
       "  c        compress      d        decompress\n"
       "  -0..-11  hash table 1 MiB .. 2 GiB (default -7 = 128 MiB; -11 needs ~2.6 GiB)\n"
       "  --*      ablation switches, recorded in the header so d mirrors c\n");

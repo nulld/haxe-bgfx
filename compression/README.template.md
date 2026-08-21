@@ -1,6 +1,6 @@
 # PRISM
 
-A lossless context-mixing compressor, written from scratch in ~890 lines of C99.
+A lossless context-mixing compressor, written from scratch in ~885 lines of C99.
 
 ```
 make native
@@ -19,19 +19,19 @@ reason shapes what *is* worth building.
 **No lossless compressor beats another on all inputs.** There are `2^n` distinct
 `n`-bit inputs and only `2^n - 1` shorter strings. Any injective encoding that
 shortens some inputs must lengthen others, so "universally better" is not a hard
-engineering target — it is a false statement about counting. Every real claim is
+engineering target -- it is a false statement about counting. Every real claim is
 of the form *better on this class of data, at this cost in time and memory*.
 
 **"Best on realistic data" is also already taken, and not by a wide margin.**
 On the standard text benchmark the current frontier is `cmix` and `nncp` at roughly
-0.86–1.17 bits per character on enwik8/9 — reached with 10–32 GB of RAM, days of
+0.86–1.17 bits per character on enwik8/9 -- reached with 10–32 GB of RAM, days of
 compute, and in nncp's case a transformer trained during compression. Beating those
 is not a weekend's work, and it would not be a new *algorithm* so much as more
 models and more compute bolted onto the same context-mixing frame.
 
 So this project targets the question that actually has a good answer: **build a
-compressor that beats the general-purpose tools people actually ship — gzip, bzip2,
-xz — by a wide margin on ratio, and contribute something to the context-mixing
+compressor that beats the general-purpose tools people actually ship -- gzip, bzip2,
+xz -- by a wide margin on ratio, and contribute something to the context-mixing
 design space that is not already in the shipping compressors.** Both halves are
 measured below, including the parts that did not work.
 
@@ -40,7 +40,7 @@ measured below, including the parts that did not work.
 PRISM is a bit-level context-mixing compressor in the lpaq/paq lineage. Each byte
 is coded as 8 binary decisions; for every bit, ~27 models each produce a
 probability, a network of gated linear mixers combines them in the logistic domain,
-two SSE stages recalibrate the result, and a binary arithmetic coder emits it.
+one SSE stage recalibrates the result, and a binary arithmetic coder emits it.
 
 ```
                  orders 1,2,3,4,5,6,8      \
@@ -68,8 +68,8 @@ two SSE stages recalibrate the result, and a binary arithmetic coder emits it.
                  binary arithmetic coder
 ```
 
-The architecture — bit histories, StateMaps, logistic mixing, APM/SSE, the nibble-tree
-hash table — is the standard one established by Matt Mahoney's PAQ and lpaq work and
+The architecture -- bit histories, StateMaps, logistic mixing, APM/SSE, the nibble-tree
+hash table -- is the standard one established by Matt Mahoney's PAQ and lpaq work and
 by zpaq; see the references. This is an independent implementation of those ideas,
 not a fork: no code was copied from any of them. The state-transition table is
 generated at start-up from an explicit count ladder rather than hard-coded, so it
@@ -78,7 +78,7 @@ can be retuned in one place.
 ## What is new here
 
 Three things in PRISM are not in the open context-mixing implementations I read
-while building it — lpaq1, paq8l, paq8px, zpaq and cmix, whose sources I went
+while building it -- lpaq1, paq8l, paq8px, zpaq and cmix, whose sources I went
 through for exactly this question. That is the claim, and it is deliberately
 narrower than "new": I make no claim about compressors I did not read, and the
 field's engineering is spread across hundreds of programs and a forum
@@ -91,8 +91,8 @@ decoder mirrors the encoder.
 
 ### 1. Harmonic-sum record-length detection (`--no-stride` to disable)
 
-Structured binary data — database rows, star catalogues, sensor tables, 16-bit
-images — is dominated by a fixed record length `S`, and knowing `S` unlocks the
+Structured binary data -- database rows, star catalogues, sensor tables, 16-bit
+images -- is dominated by a fixed record length `S`, and knowing `S` unlocks the
 single most valuable context there is on such data: the byte in the same column of
 the previous record.
 
@@ -100,11 +100,11 @@ Existing detectors have a common weakness. paq8's detector votes on equal spacin
 between repeats of the same byte value; zpaq's scans a histogram of gaps between
 successive occurrences of each byte and picks the best single bin by a hazard-rate
 score. Both are **single-bin statistics**, so a record length of `S` competes with
-its own harmonics at `2S`, `3S`, … — and picking `2S` costs you half the column
+its own harmonics at `2S`, `3S`, … -- and picking `2S` costs you half the column
 structure. paq8px carries an explicit special case for the `2×` alias to paper over
 exactly this.
 
-PRISM scores the whole comb instead. The technique is not new in general — it is
+PRISM scores the whole comb instead. The technique is not new in general -- it is
 the harmonic sum used for pitch detection in audio, where the same `S` vs `2S`
 ambiguity has been solved this way for decades. What is new is applying it to
 record-length detection inside a compressor, and letting its output gate the
@@ -129,9 +129,9 @@ is 1.5k integer operations per 4 KB. It runs unsupervised and re-decides every
 boundary or file-type detector.
 
 On the synthetic 12-byte-record file in the test suite this is the difference
-between 3,036 and 23,554 bytes — **7.8×**. On the Silesia corpus, removing the
-whole stride machinery costs STRIDE_PCT, concentrated on `sao` (a fixed-width
-star catalogue) at +10.4%.
+between 3,036 and 23,554 bytes -- **7.8×**. On the Silesia corpus, removing the
+whole stride machinery costs STRIDE_PCT, concentrated where its motivation says
+it should be: STRIDE_WORST.
 
 ### 2. Regime-gated mixing (`--no-regime` to disable)
 
@@ -142,19 +142,24 @@ coding starts. Both are discrete, up-front, file-level decisions.
 PRISM instead derives a 6-bit **regime** continuously from three signals that are
 already being computed: match strength (2 bits), data class from a decaying
 printable/digit density counter (2 bits), and stride class (2 bits). That regime
-selects a layer-1 mixer weight bank, gates the layer-2 mixer, contexts the
-match model's StateMap, and contexts one of the two SSE stages. The network
-therefore re-specialises *inside* a heterogeneous file — a tar of source and
-binaries, an archive with a header and a payload — with no block boundary and no
-detector.
+selects a layer-1 mixer weight bank, gates the layer-2 mixer, and contexts the
+match model's StateMap. The network therefore re-specialises *inside* a
+heterogeneous file -- a tar of source and binaries, an archive with a header and
+a payload -- with no block boundary and no detector.
 
-Measured contribution: REGIME_PCT on the full corpus, worst-hit file `osdb` at
-+3.1%. Worth recording how that number moved: while tuning on 2 MB samples the
-regime gate looked nearly worthless (0.11%), and it would have been reasonable to
-delete it. It only pays off at corpus scale, because a weight bank per regime
-needs enough data to fill 64 banks before specialising beats diluting. Tuning
-decisions taken on small samples are not safe to extrapolate, and this is the
-component that showed it.
+Measured contribution: REGIME_PCT on the full corpus (worst hit: REGIME_WORST).
+
+That number has a history worth recording, because it moved twice. While tuning
+on 2 MB samples the regime gate measured 0.11% and looked deletable. On the full
+corpus it measured 1.26% -- a weight bank per regime needs enough data to fill 64
+banks before specialising beats diluting, so small samples systematically
+understate it. Then the SSE sweep found that the whole SSE stage the regime was
+contexting should be removed; that made the compressor 2.7% smaller overall and
+took most of the regime's measured contribution with it, leaving REGIME_PCT.
+
+None of those three numbers is wrong -- they measure the same component in three
+different compressors. The honest summary is that the regime gate is worth
+having and is not worth much.
 
 ### 3. Multi-timescale layer 1
 
@@ -163,7 +168,7 @@ unit error) rather than one global rate. Fast mixers track regime changes, slow 
 hold a long-run average, and the regime-gated layer-2 mixer arbitrates. cmix
 duplicates gating contexts across learning rates for the same reason; the
 combination with an explicit regime gate on the arbitrating layer is what is new
-here. Measured at about 0.1% on a 16 MB tuning sample — small, but essentially
+here. Measured at about 0.1% on a 16 MB tuning sample -- small, but essentially
 free, since it changes a constant rather than adding work.
 
 ## Results
@@ -182,18 +187,23 @@ Each row recompresses the whole corpus with one component disabled.
 ABLATION_TABLE
 
 The honest reading: the **match model is the largest single contribution** at
-3.49%, and it is the least novel part of the whole compressor — it is the LZ77
-idea, fed to the mixer as a probability instead of used as a decision. The two
-components this project actually contributes come next, at 1.39% and 1.26%, and
-each is concentrated exactly where its motivation says it should be (`sao` for
-the record grid, `osdb` for regime switching inside a file).
+MATCH_PCT, and it is the least novel part of the whole compressor -- it is the
+LZ77 idea, fed to the mixer as a probability instead of used as a decision. The
+stride machinery comes next at STRIDE_PCT, concentrated exactly where its
+motivation says it should be (STRIDE_WORST). The newline column models, which
+are three lines of code, are worth LINE_PCT. Regime gating is last and smallest
+at REGIME_PCT.
 
-Worth more than any of them was a tuning constant found by measurement, not an
-idea: keeping half the final weight on the raw mixer output instead of letting
-the SSE stages dominate. The textbook topology (parallel SSE banks averaged with
-equal weight) cost 12% on `xml` alone. That is the honest shape of work in this
-field — the architecture is published, and most of the remaining distance is
-measurement.
+Worth more than all of them put together was the SSE blend, arrived at by
+sweeping rather than by reasoning. Three quarters of the final weight stays on
+the raw mixer output, and the second SSE stage that every reference
+implementation has was deleted. Moving from the textbook topology to that was
+**2.7% on the full corpus** -- more than the stride detector, the newline models
+and the regime gate combined, from removing code rather than adding it.
+
+That is the honest shape of work in this field. The architecture is published
+and has been for twenty years; most of the remaining distance is measurement,
+and a good deal of it is measurement that tells you to take something out.
 
 ## What did not work
 
@@ -228,9 +238,9 @@ This is the part that decides whether you would actually use it.
 COST_TABLE
 
 - **Decompression costs the same as compression.** The model must be rebuilt
-  identically, so there is no fast decode path. xz decompresses this corpus at
-  55 MiB/s, PRISM at 0.14. For anything write-once-read-many, that is
-  disqualifying.
+  identically, so there is no fast decode path. See the table above: xz
+  decompresses this corpus roughly 300 times faster. For anything
+  write-once-read-many, that is disqualifying.
 - **No random access, no streaming, no recovery.** The whole file is held in memory
   and the model state is a single unbroken chain; a corrupt byte destroys the
   remainder.
@@ -246,16 +256,16 @@ English prose, lpaq1 is smaller and roughly ten times faster (see enwik8 above)
 ## Usage
 
 ```
-prism c|d [-0..-9] [ablation flags] infile outfile
+prism c|d [-0..-11] [ablation flags] infile outfile
 
   c            compress
   d            decompress (settings are read from the header)
-  -0 .. -9     model memory, 1 MiB .. 512 MiB of hash table (default -7)
+  -0 .. -11    hash table size, 1 MiB .. 2 GiB (default -7 = 128 MiB)
   -v           report record-length detections to stderr
   -q           no progress output
 
   --no-stride  disable stride detection and the column models
-  --no-regime  disable regime-gated mixing and SSE
+  --no-regime  disable regime-gated mixing
   --no-line    disable the newline column models
   --no-match   disable the match model
   --baseline   --no-stride --no-regime
@@ -287,18 +297,18 @@ bench/results/         generated tables
 The architecture follows the published context-mixing literature. Nothing here is
 copied, but the debt is total:
 
-- M. Mahoney, *Data Compression Explained*, and the PAQ/lpaq/zpaq sources —
+- M. Mahoney, *Data Compression Explained*, and the PAQ/lpaq/zpaq sources --
   bit-history states, StateMap, logistic mixing, APM/SSE, the nibble-tree hash table.
   <https://www.mattmahoney.net/dc/dce.html>, <https://github.com/zpaq/zpaq>
-- B. Knoll, *cmix* — multi-layer mixing, per-mixer learning rates.
+- B. Knoll, *cmix* -- multi-layer mixing, per-mixer learning rates.
   <https://github.com/byronknoll/cmix>
-- *paq8px* — record model, sparse and indirect contexts, SSE topology.
+- *paq8px* -- record model, sparse and indirect contexts, SSE topology.
   <https://github.com/hxim/paq8px>
-- J. Veness et al., *Gated Linear Networks*, arXiv:1910.01526 — the formal frame in
+- J. Veness et al., *Gated Linear Networks*, arXiv:1910.01526 -- the formal frame in
   which "gate the mixer on any measurable signal" is the free design parameter.
 - Silesia corpus: <https://github.com/MiloszKrajewski/SilesiaCorpus>;
   enwik8: <http://prize.hutter1.net/>
 
 ## Licence
 
-MIT — see `LICENSE`.
+MIT -- see `LICENSE`.

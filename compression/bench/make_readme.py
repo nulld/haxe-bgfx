@@ -17,11 +17,20 @@ abl = (res / "ablation.md").read_text().strip()
 text = text.replace("ABLATION_TABLE", abl)
 
 tot = collections.defaultdict(int)
+per = collections.defaultdict(dict)
 for r in csv.DictReader(open(res / "ablation.csv")):
-    tot[r['config']] += int(r['size'])
+    tot[r['config']] += int(r['size']); per[r['config']][r['file']] = int(r['size'])
 def pct(cfg):
     return "%+.2f%%" % (100.0 * (tot[cfg] - tot['full']) / tot['full'])
-text = text.replace("STRIDE_PCT", pct('no-stride')).replace("REGIME_PCT", pct('no-regime'))
+def worst(cfg):
+    w, wd = '', 0.0
+    for f, v in per[cfg].items():
+        d = 100.0 * (v - per['full'][f]) / per['full'][f]
+        if d > wd: wd, w = d, f
+    return "`%s` at +%.1f%%" % (w, wd)
+for key, cfg in (("STRIDE", 'no-stride'), ("REGIME", 'no-regime'),
+                 ("MATCH", 'no-match'), ("LINE", 'no-line')):
+    text = text.replace(key + "_PCT", pct(cfg)).replace(key + "_WORST", worst(cfg))
 
 # ---- cost table ----------------------------------------------------------
 rows = list(csv.DictReader(open(res / "raw.csv")))
